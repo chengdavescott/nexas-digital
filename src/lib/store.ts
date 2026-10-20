@@ -159,6 +159,48 @@ function read<T>(key: string, fallback: T): T {
 }
 function write(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
+  void persistStoreKey(key, value);
+}
+
+const remoteKeyByLocalKey: Record<string, string> = {
+  [K_USERS]: "users",
+  [K_TXS]: "transactions",
+  [K_DEPOSITS]: "deposits",
+  [K_WALLETS]: "walletRequests",
+  [K_CRYPTO_CONFIG]: "cryptoConfig",
+};
+
+let remoteHydrated = false;
+let remoteHydrationPromise: Promise<void> | null = null;
+
+async function persistStoreKey(key: string, data: unknown) {
+  const storeKey = remoteKeyByLocalKey[key];
+  if (!storeKey || typeof window === "undefined") return;
+  try {
+    await fetch("/api/store", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storeKey, data }),
+    });
+  } catch {
+    // Local state remains available when the API is temporarily unreachable.
+  }
+}
+
+export function hydrateStoreFromDatabase() {
+  if (remoteHydrated) return Promise.resolve();
+  if (remoteHydrationPromise) return remoteHydrationPromise;
+  remoteHydrationPromise = fetch("/api/store")
+    .then((response) => response.ok ? response.json() : { entries: [] })
+    .then(({ entries }: { entries?: Array<{ storeKey: string; data: unknown }> }) => {
+      for (const entry of entries ?? []) {
+        const localKey = Object.keys(remoteKeyByLocalKey).find((key) => remoteKeyByLocalKey[key] === entry.storeKey);
+        if (localKey && entry.data !== undefined) localStorage.setItem(localKey, JSON.stringify(entry.data));
+      }
+      remoteHydrated = true;
+    })
+    .catch(() => { remoteHydrated = true; });
+  return remoteHydrationPromise;
 }
 
 // ── seed data (mirrors the original deployment) ────────────────
