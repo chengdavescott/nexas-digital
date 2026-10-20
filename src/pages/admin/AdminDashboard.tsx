@@ -39,7 +39,13 @@ export default function AdminDashboard() {
     setTick((t) => t + 1);
   };
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    refresh();
+    const handleHydrated = () => refresh();
+    window.addEventListener("nexas-store-hydrated", handleHydrated);
+    return () => window.removeEventListener("nexas-store-hydrated", handleHydrated);
+    /* eslint-disable-next-line */
+  }, []);
   useEffect(() => { window.scrollTo({ top: 0 }); }, [tab]);
 
   if (!user) {
