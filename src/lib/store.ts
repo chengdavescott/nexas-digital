@@ -173,22 +173,32 @@ const remoteKeyByLocalKey: Record<string, string> = {
 let remoteHydrated = false;
 let remoteHydrationPromise: Promise<void> | null = null;
 
-async function persistStoreKey(key: string, data: unknown) {
+const persistQueue = new Map<string, Promise<void>>();
+
+function persistStoreKey(key: string, data: unknown) {
   const storeKey = remoteKeyByLocalKey[key];
   if (!storeKey || typeof window === "undefined") return;
-  try {
-    await fetch("/api/store", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storeKey, data }),
+
+  const previous = persistQueue.get(storeKey) ?? Promise.resolve();
+  const request = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const response = await fetch("/api/store", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeKey, data }),
+      });
+      if (!response.ok) throw new Error(`Unable to save ${storeKey}`);
+    })
+    .catch(() => {
+      // Local state remains available when the API is temporarily unreachable.
     });
-  } catch {
-    // Local state remains available when the API is temporarily unreachable.
-  }
+
+  persistQueue.set(storeKey, request);
 }
 
 async function fetchStoreFromDatabase() {
-  const response = await fetch("/api/store", { cache: "no-store" });
+  const response = await fetch(`/api/store?refresh=${Date.now()}`, { cache: "no-store" });
   if (!response.ok) throw new Error("Unable to load the shared store");
   const { entries } = await response.json() as { entries?: Array<{ storeKey: string; data: unknown }> };
   for (const entry of entries ?? []) {
