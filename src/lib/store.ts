@@ -187,20 +187,29 @@ async function persistStoreKey(key: string, data: unknown) {
   }
 }
 
+async function fetchStoreFromDatabase() {
+  const response = await fetch("/api/store", { cache: "no-store" });
+  if (!response.ok) throw new Error("Unable to load the shared store");
+  const { entries } = await response.json() as { entries?: Array<{ storeKey: string; data: unknown }> };
+  for (const entry of entries ?? []) {
+    const localKey = Object.keys(remoteKeyByLocalKey).find((key) => remoteKeyByLocalKey[key] === entry.storeKey);
+    if (localKey && entry.data !== undefined) localStorage.setItem(localKey, JSON.stringify(entry.data));
+  }
+}
+
 export function hydrateStoreFromDatabase() {
   if (remoteHydrated) return Promise.resolve();
   if (remoteHydrationPromise) return remoteHydrationPromise;
-  remoteHydrationPromise = fetch("/api/store")
-    .then((response) => response.ok ? response.json() : { entries: [] })
-    .then(({ entries }: { entries?: Array<{ storeKey: string; data: unknown }> }) => {
-      for (const entry of entries ?? []) {
-        const localKey = Object.keys(remoteKeyByLocalKey).find((key) => remoteKeyByLocalKey[key] === entry.storeKey);
-        if (localKey && entry.data !== undefined) localStorage.setItem(localKey, JSON.stringify(entry.data));
-      }
-      remoteHydrated = true;
-    })
+  remoteHydrationPromise = fetchStoreFromDatabase()
+    .then(() => { remoteHydrated = true; })
     .catch(() => { remoteHydrated = true; });
   return remoteHydrationPromise;
+}
+
+/** Refreshes shared data so admin screens can see registrations from other browsers. */
+export async function refreshStoreFromDatabase() {
+  await fetchStoreFromDatabase();
+  window.dispatchEvent(new Event("nexas-store-hydrated"));
 }
 
 // ── seed data (mirrors the original deployment) ────────────────
