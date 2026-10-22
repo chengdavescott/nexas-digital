@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, ShieldCheck, ReceiptText, Bitcoin, Wand2,
 } from "lucide-react";
 import PortalShell from "../../components/PortalShell";
-import { getSession, getUserById, getUsers, getDeposits, getWalletRequests, type User } from "../../lib/store";
+import { getSession, getUserById, getUsers, getDeposits, getWalletRequests, refreshStoreFromDatabase, type User } from "../../lib/store";
 import AdminOverview from "./AdminOverview";
 import AdminUsers from "./AdminUsers";
 import AdminVerifications from "./AdminVerifications";
@@ -46,7 +46,14 @@ export default function AdminDashboard() {
     return () => window.removeEventListener("nexas-store-hydrated", handleHydrated);
     /* eslint-disable-next-line */
   }, []);
-  useEffect(() => { window.scrollTo({ top: 0 }); }, [tab]);
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+    if (tab === "users") {
+      void refreshStoreFromDatabase().catch(() => {
+        // Keep the last local snapshot available if the database is temporarily unavailable.
+      });
+    }
+  }, [tab]);
 
   if (!user) {
     return (
