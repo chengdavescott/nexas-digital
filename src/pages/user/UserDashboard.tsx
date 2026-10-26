@@ -5,7 +5,7 @@ import {
   Bitcoin, ShieldCheck, User as UserIcon,
 } from "lucide-react";
 import PortalShell from "../../components/PortalShell";
-import { getSession, getUserById, type User } from "../../lib/store";
+import { getSession, getUserById, refreshStoreFromDatabase, type User } from "../../lib/store";
 import UserOverview from "./UserOverview";
 import UserTransfer from "./UserTransfer";
 import UserWire from "./UserWire";
@@ -40,7 +40,18 @@ export default function UserDashboard() {
     setUser(fresh);
   };
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    queueMicrotask(refresh);
+    const onHydrated = () => refresh();
+    const sync = () => { void refreshStoreFromDatabase().then(refresh); };
+    window.addEventListener("nexas-store-hydrated", onHydrated);
+    const timer = window.setInterval(sync, 5000);
+    return () => {
+      window.removeEventListener("nexas-store-hydrated", onHydrated);
+      window.clearInterval(timer);
+    };
+    /* eslint-disable-next-line */
+  }, []);
   useEffect(() => { window.scrollTo({ top: 0 }); }, [tab]);
 
   if (!user) {
