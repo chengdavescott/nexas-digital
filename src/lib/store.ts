@@ -476,11 +476,19 @@ export const setSession = (u: User | null) =>
   u ? localStorage.setItem(K_SESSION, JSON.stringify(u)) : localStorage.removeItem(K_SESSION);
 
 export function login(email: string, password: string): User {
-  const user = getUserByEmail(email);
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = getUserByEmail(normalizedEmail);
   if (!user || user.password !== password) throw new Error("Invalid email or password");
   if (user.status !== "active") throw new Error("Account is inactive. Please contact support.");
   setSession(user);
   return user;
+}
+
+export function resetPassword(email: string, newPassword: string): User {
+  const user = getUserByEmail(email);
+  if (!user) throw new Error("No account was found with that email address");
+  if (newPassword.length < 8) throw new Error("Password must be at least 8 characters");
+  return updateUser(user.id, { password: newPassword });
 }
 
 export function logout() {
