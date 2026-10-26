@@ -1,9 +1,17 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Pool } from "pg";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const databaseUrl = process.env.DATABASE_URL;
+
+const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (!databaseUrl || !pool) {
+    return res.status(500).json({
+      error: "DATABASE_URL is not configured. Add the PostgreSQL connection string in Vercel or your local .env file.",
+    });
+  }
+
   try {
     if (req.method === "GET") {
       const result = await pool.query(
