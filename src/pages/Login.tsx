@@ -17,7 +17,7 @@ export default function Login() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return toast("Please enter a valid email address", "error");
+    if (!email.trim()) return toast("Enter your registered user ID or email address", "error");
     if (!password) return toast("Enter your password", "error");
     setBusy(true);
     try {
@@ -68,8 +68,8 @@ export default function Login() {
           <p className="mt-1 text-center text-sm text-slate-400">Sign in to access your secure account</p>
           <form onSubmit={submit} className="mt-7 space-y-4">
             <label className="block">
-              <span className="mb-1.5 block text-[13px] font-semibold text-slate-300">Email Address</span>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email" autoComplete="email" className="input-dark w-full rounded-xl px-4 py-3 text-sm" />
+              <span className="mb-1.5 block text-[13px] font-semibold text-slate-300">User ID or Email Address</span>
+              <input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your user ID or email" autoComplete="username" className="input-dark w-full rounded-xl px-4 py-3 text-sm" />
             </label>
             <label className="block">
               <span className="mb-1.5 block text-[13px] font-semibold text-slate-300">Password</span>

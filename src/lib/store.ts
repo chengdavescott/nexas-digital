@@ -475,10 +475,14 @@ export const getSession = () => read<User | null>(K_SESSION, null);
 export const setSession = (u: User | null) =>
   u ? localStorage.setItem(K_SESSION, JSON.stringify(u)) : localStorage.removeItem(K_SESSION);
 
-export function login(email: string, password: string): User {
-  const normalizedEmail = email.trim().toLowerCase();
-  const user = getUserByEmail(normalizedEmail);
-  if (!user || user.password !== password) throw new Error("Invalid email or password");
+export function login(identifier: string, password: string): User {
+  const normalizedIdentifier = identifier.trim().toLowerCase();
+  const user = getUsers().find(
+    (candidate) =>
+      candidate.email.trim().toLowerCase() === normalizedIdentifier ||
+      candidate.id.trim().toLowerCase() === normalizedIdentifier,
+  );
+  if (!user || user.password !== password) throw new Error("Invalid user ID/email or password");
   if (user.status !== "active") throw new Error("Account is inactive. Please contact support.");
   setSession(user);
   return user;
