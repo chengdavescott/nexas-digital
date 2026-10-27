@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Eye, EyeOff, Lock, ShieldCheck, Fingerprint } from "lucide-react";
 import { Logo, useToast } from "../components/ui";
-import { login } from "../lib/store";
+import { hydrateStoreFromDatabase, login, resetPassword } from "../lib/store";
 
 export default function Login() {
   const nav = useNavigate();
@@ -10,24 +10,43 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetConfirmation, setResetConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return toast("Please enter a valid email address", "error");
     if (!password) return toast("Enter your password", "error");
     setBusy(true);
-    setTimeout(() => {
-      try {
-        const u = login(email.trim(), password);
-        toast(`Welcome back, ${u.firstName}! Login successful!`);
-        nav(u.role === "admin" ? "/admin" : "/dashboard", { replace: true });
-      } catch (err) {
-        toast(err instanceof Error ? err.message : "An error occurred during login", "error");
-      } finally {
-        setBusy(false);
-      }
-    }, 600);
+    try {
+      await hydrateStoreFromDatabase();
+      const u = login(email, password);
+      toast(`Welcome back, ${u.firstName}! Login successful!`);
+      nav(u.role === "admin" ? "/admin" : "/dashboard", { replace: true });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "An error occurred during login", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReset = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) return toast("Enter the email address on your account", "error");
+    if (resetPasswordValue.length < 8) return toast("Password must be at least 8 characters", "error");
+    if (resetPasswordValue !== resetConfirmation) return toast("Passwords do not match", "error");
+    try {
+      resetPassword(email, resetPasswordValue);
+      setPassword("");
+      setResetPasswordValue("");
+      setResetConfirmation("");
+      setForgot(false);
+      toast("Password updated. You can now sign in.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to reset password", "error");
+    }
   };
 
   return (
@@ -61,10 +80,21 @@ export default function Login() {
                 </button>
               </div>
             </label>
+            {forgot && (
+              <div className="space-y-3 rounded-2xl border border-sky-400/15 bg-sky-400/5 p-4">
+                <p className="text-xs leading-5 text-slate-400">Reset your password using the email address on your account.</p>
+                <input type="password" value={resetPasswordValue} onChange={(e) => setResetPasswordValue(e.target.value)} placeholder="New password (8+ characters)" autoComplete="new-password" className="input-dark w-full rounded-xl px-4 py-3 text-sm" />
+                <input type="password" value={resetConfirmation} onChange={(e) => setResetConfirmation(e.target.value)} placeholder="Confirm new password" autoComplete="new-password" className="input-dark w-full rounded-xl px-4 py-3 text-sm" />
+                <button type="button" onClick={handleReset} className="w-full rounded-xl border border-sky-400/30 px-4 py-2.5 text-sm font-bold text-sky-300 transition hover:bg-sky-400/10">Update Password</button>
+              </div>
+            )}
             <button type="submit" disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-500 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-900/40 transition hover:brightness-110 active:scale-[0.99] disabled:opacity-60">
               <Lock className="h-4 w-4" /> {busy ? "Signing in..." : "Sign In"}
             </button>
           </form>
+          <button type="button" onClick={() => setForgot((value) => !value)} className="mt-4 block w-full text-center text-xs font-semibold text-sky-300 transition hover:text-sky-200">
+            {forgot ? "Back to sign in" : "Forgot password?"}
+          </button>
           <div className="mt-5 text-center text-[13px] text-slate-400">
             Don&apos;t have an account? <Link to="/signup" className="font-bold text-sky-300 hover:text-sky-200">Create Account</Link>
           </div>

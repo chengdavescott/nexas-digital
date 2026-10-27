@@ -159,6 +159,57 @@ function read<T>(key: string, fallback: T): T {
 }
 function write(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
+  void persistStoreKey(key, value);
+}
+
+const remoteKeyByLocalKey: Record<string, string> = {
+  [K_USERS]: "users",
+  [K_TXS]: "transactions",
+  [K_DEPOSITS]: "deposits",
+  [K_WALLETS]: "walletRequests",
+  [K_CRYPTO_CONFIG]: "cryptoConfig",
+};
+
+let remoteHydrated = false;
+let remoteHydrationPromise: Promise<void> | null = null;
+
+async function persistStoreKey(key: string, data: unknown) {
+  const storeKey = remoteKeyByLocalKey[key];
+  if (!storeKey || typeof window === "undefined") return;
+  try {
+    await fetch("/api/store", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storeKey, data }),
+    });
+  } catch {
+    // Local state remains available when the API is temporarily unreachable.
+  }
+}
+
+async function fetchStoreFromDatabase() {
+  const response = await fetch("/api/store", { cache: "no-store" });
+  if (!response.ok) throw new Error("Unable to load the shared store");
+  const { entries } = await response.json() as { entries?: Array<{ storeKey: string; data: unknown }> };
+  for (const entry of entries ?? []) {
+    const localKey = Object.keys(remoteKeyByLocalKey).find((key) => remoteKeyByLocalKey[key] === entry.storeKey);
+    if (localKey && entry.data !== undefined) localStorage.setItem(localKey, JSON.stringify(entry.data));
+  }
+}
+
+export function hydrateStoreFromDatabase() {
+  if (remoteHydrated) return Promise.resolve();
+  if (remoteHydrationPromise) return remoteHydrationPromise;
+  remoteHydrationPromise = fetchStoreFromDatabase()
+    .then(() => { remoteHydrated = true; })
+    .catch(() => { remoteHydrated = true; });
+  return remoteHydrationPromise;
+}
+
+/** Refreshes shared data so admin screens can see registrations from other browsers. */
+export async function refreshStoreFromDatabase() {
+  await fetchStoreFromDatabase();
+  window.dispatchEvent(new Event("nexas-store-hydrated"));
 }
 
 // ── seed data (mirrors the original deployment) ────────────────
@@ -425,11 +476,19 @@ export const setSession = (u: User | null) =>
   u ? localStorage.setItem(K_SESSION, JSON.stringify(u)) : localStorage.removeItem(K_SESSION);
 
 export function login(email: string, password: string): User {
-  const user = getUserByEmail(email);
+  const normalizedEmail = email.trim().toLowerCase();
+  const user = getUserByEmail(normalizedEmail);
   if (!user || user.password !== password) throw new Error("Invalid email or password");
   if (user.status !== "active") throw new Error("Account is inactive. Please contact support.");
   setSession(user);
   return user;
+}
+
+export function resetPassword(email: string, newPassword: string): User {
+  const user = getUserByEmail(email);
+  if (!user) throw new Error("No account was found with that email address");
+  if (newPassword.length < 8) throw new Error("Password must be at least 8 characters");
+  return updateUser(user.id, { password: newPassword });
 }
 
 export function logout() {
@@ -681,12 +740,17 @@ export function submitVerification(userId: string, v: Verification) {
 export function reviewVerification(userId: string, approve: boolean, adminNote?: string) {
   const u = getUserById(userId);
   if (!u) throw new Error("User not found");
+  if (u.verification.status !== "pending") throw new Error("Verification has already been reviewed");
+  if (!approve && !adminNote?.trim()) throw new Error("A decline reason is required");
+
+  const reviewedAt = new Date().toISOString();
   return updateUser(userId, {
+    status: approve ? "active" : "inactive",
     verification: {
       ...u.verification,
       status: approve ? "verified" : "declined",
-      adminNote,
-      reviewedAt: new Date().toISOString(),
+      adminNote: adminNote?.trim() || undefined,
+      reviewedAt,
     },
   });
 }
