@@ -740,12 +740,17 @@ export function submitVerification(userId: string, v: Verification) {
 export function reviewVerification(userId: string, approve: boolean, adminNote?: string) {
   const u = getUserById(userId);
   if (!u) throw new Error("User not found");
+  if (u.verification.status !== "pending") throw new Error("Verification has already been reviewed");
+  if (!approve && !adminNote?.trim()) throw new Error("A decline reason is required");
+
+  const reviewedAt = new Date().toISOString();
   return updateUser(userId, {
+    status: approve ? "active" : "inactive",
     verification: {
       ...u.verification,
       status: approve ? "verified" : "declined",
-      adminNote,
-      reviewedAt: new Date().toISOString(),
+      adminNote: adminNote?.trim() || undefined,
+      reviewedAt,
     },
   });
 }
