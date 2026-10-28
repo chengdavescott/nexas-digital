@@ -205,8 +205,10 @@ async function fetchStoreFromDatabase() {
         const existingIndex = mergedUsers.findIndex(
           (user) => user.id === localUser.id || user.email.trim().toLowerCase() === localUser.email.trim().toLowerCase(),
         );
+        // The database is authoritative for registered accounts. Only retain a
+        // local account when it has not reached the shared store yet; otherwise
+        // stale browser data must not overwrite its password or account status.
         if (existingIndex === -1) mergedUsers.push(localUser);
-        else mergedUsers[existingIndex] = { ...mergedUsers[existingIndex], ...localUser };
       }
       localStorage.setItem(localKey, JSON.stringify(mergedUsers));
     } else {
@@ -623,7 +625,7 @@ export function adminAdjust(userId: string, kind: "credit" | "debit", amount: nu
   });
 }
 
-// ── crypto wallet configuration ───────────────────────────────
+// ── crypto wallet configuration ─────────────────────────────���─
 export const getEnabledCryptoAssets = (): CryptoAsset[] => {
   const configured = read<CryptoAsset[]>(K_CRYPTO_CONFIG, ["BTC", "ETH", "SOL", "TON", "USDT"]);
   return configured.filter((asset, index, all) => asset in CRYPTO_META && all.indexOf(asset) === index);
