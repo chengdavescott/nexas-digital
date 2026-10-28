@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 import { ToastProvider } from "./components/ui";
 import { hydrateStoreFromDatabase, initStore } from "./lib/store";
@@ -9,6 +9,7 @@ import Signup from "./pages/Signup";
 import AdminLogin from "./pages/AdminLogin";
 import UserDashboard from "./pages/user/UserDashboard";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import NotFound from "./pages/NotFound";
 
 export default function App() {
   useEffect(() => {
@@ -26,7 +27,7 @@ export default function App() {
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/dashboard" element={<UserDashboard />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
       <Analytics />
