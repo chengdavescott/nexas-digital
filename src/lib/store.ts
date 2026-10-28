@@ -193,7 +193,25 @@ async function fetchStoreFromDatabase() {
   const { entries } = await response.json() as { entries?: Array<{ storeKey: string; data: unknown }> };
   for (const entry of entries ?? []) {
     const localKey = Object.keys(remoteKeyByLocalKey).find((key) => remoteKeyByLocalKey[key] === entry.storeKey);
-    if (localKey && entry.data !== undefined) localStorage.setItem(localKey, JSON.stringify(entry.data));
+    if (!localKey || entry.data === undefined) continue;
+
+    // Keep locally registered members when the shared database contains an older snapshot.
+    // This prevents hydration from erasing a just-created account before login.
+    if (localKey === K_USERS && Array.isArray(entry.data)) {
+      const remoteUsers = entry.data as User[];
+      const localUsers = read<User[]>(K_USERS, []);
+      const mergedUsers = [...remoteUsers];
+      for (const localUser of localUsers) {
+        const existingIndex = mergedUsers.findIndex(
+          (user) => user.id === localUser.id || user.email.trim().toLowerCase() === localUser.email.trim().toLowerCase(),
+        );
+        if (existingIndex === -1) mergedUsers.push(localUser);
+        else mergedUsers[existingIndex] = { ...mergedUsers[existingIndex], ...localUser };
+      }
+      localStorage.setItem(localKey, JSON.stringify(mergedUsers));
+    } else {
+      localStorage.setItem(localKey, JSON.stringify(entry.data));
+    }
   }
 }
 
