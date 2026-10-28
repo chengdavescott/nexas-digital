@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { Search, Pencil, CheckCircle2, ArrowUpDown } from "lucide-react";
+import { Search, Pencil, Trash2, CheckCircle2, ArrowUpDown } from "lucide-react";
 import type { Transaction } from "../../lib/store";
 import {
-  money, getTransactions, updateTransaction, getUserByAccount, fullName,
+  money, getTransactions, updateTransaction, deleteTransaction, getUserByAccount, fullName,
   getUsers, adminAdjust, fmtDate,
 } from "../../lib/store";
 import { SectionTitle, Field, inputCls, StatusBadge, EmptyState, Modal, PrimaryBtn, useToast } from "../../components/ui";
@@ -42,6 +42,20 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
   }, [q, type, status, asc, tick]);
 
   const reload = () => { setTick((t) => t + 1); refreshAll(); };
+
+  const removeTransaction = (tx: Transaction) => {
+    const confirmed = window.confirm(
+      `Delete transaction ${tx.id}? Successful transactions will have their balance impact reversed before deletion.`,
+    );
+    if (!confirmed) return;
+    try {
+      deleteTransaction(tx.id);
+      reload();
+      toast("Transaction deleted and balances reversed");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Delete failed", "error");
+    }
+  };
 
   const settleWire = (tx: Transaction, ok: boolean) => {
     try {
@@ -105,7 +119,16 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
                   <span className="font-bold text-slate-200">{to ? fullName(to) : tx.toAccount}</span>
                   <span className="ml-auto font-mono text-[11px] text-slate-600">{fmtDate(tx.createdAt)}</span>
                 </div>
-                <AdminTxRow tx={tx} onEdit={() => setEdit({ ...tx })} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <AdminTxRow tx={tx} onEdit={() => setEdit({ ...tx })} />
+                  <button
+                    onClick={() => removeTransaction(tx)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20"
+                    aria-label={`Delete transaction ${tx.id}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </button>
+                </div>
                 {tx.status === "pending" && tx.type === "wire" && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button onClick={() => settleWire(tx, true)} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20">

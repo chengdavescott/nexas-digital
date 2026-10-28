@@ -550,6 +550,34 @@ export function updateTransaction(id: string, patch: Partial<Transaction>): Tran
   return txs[i];
 }
 
+/** Remove a transaction and reverse its successful balance impact first. */
+export function deleteTransaction(id: string): Transaction {
+  const txs = getTransactions();
+  const tx = txs.find((t) => t.id === id);
+  if (!tx) throw new Error("Transaction not found");
+
+  if (tx.status === "successful" && tx.amount > 0) {
+    const from = getUserByAccount(tx.fromAccount);
+    const to = getUserByAccount(tx.toAccount);
+    if (from && tx.fromAccount !== "SYSTEM" && !tx.fromAccount.startsWith("CRYPTO")) {
+      updateUser(from.id, { balance: +(from.balance + tx.amount).toFixed(2) });
+    }
+    if (to && tx.toAccount !== "SYSTEM") {
+      const freshTo = getUserById(to.id);
+      if (freshTo) {
+        if (tx.fromAccount === "SYSTEM") {
+          updateUser(freshTo.id, { balance: +(freshTo.balance - tx.amount).toFixed(2) });
+        } else {
+          updateUser(freshTo.id, { balance: +(freshTo.balance - tx.amount).toFixed(2) });
+        }
+      }
+    }
+  }
+
+  saveTransactions(txs.filter((entry) => entry.id !== id));
+  return tx;
+}
+
 /** Move money between two internal accounts. Returns the created tx. */
 export function internalTransfer(from: User, toAccount: string, amount: number, description: string): Transaction {
   if (from.accountNumber === toAccount) throw new Error("Cannot transfer to your own account");
