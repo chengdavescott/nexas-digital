@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, UserCheck, UserX, Eye, PlusCircle, MinusCircle, CreditCard, X } from "lucide-react";
 import type { User } from "../../lib/store";
 import {
   money, getUsers, updateUser, adminAdjust, issueVirtualCard, fullName, fmtDate,
-  userTransactions, userDeposits, assignedWallets,
+  userTransactions, userDeposits, assignedWallets, refreshStoreFromDatabase,
 } from "../../lib/store";
 import { SectionTitle, Field, inputCls, StatusBadge, EmptyState, Modal, PrimaryBtn, useToast } from "../../components/ui";
 import { TxRow } from "../../components/TxList";
@@ -30,6 +30,24 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
   }, [q, filter, tick]);
 
   const reload = () => { setTick((t) => t + 1); refreshAll(); };
+
+  useEffect(() => {
+    let mounted = true;
+    const syncUsers = async () => {
+      try {
+        await refreshStoreFromDatabase();
+        if (mounted) reload();
+      } catch {
+        // Keep the latest local snapshot visible while the shared store is unavailable.
+      }
+    };
+    void syncUsers();
+    const timer = window.setInterval(syncUsers, 5000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const toggleStatus = (u: User) => {
     const next = u.status === "active" ? "inactive" : "active";
