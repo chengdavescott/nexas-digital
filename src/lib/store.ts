@@ -486,6 +486,11 @@ export function updateUser(id: string, patch: Partial<User>): User {
 
 export function addUser(u: User) {
   const users = getUsers();
+  const duplicate = users.some((existing) =>
+    existing.email.trim().toLowerCase() === u.email.trim().toLowerCase() ||
+    existing.accountNumber === u.accountNumber,
+  );
+  if (duplicate) throw new Error("An account with these details already exists");
   users.push(u);
   saveUsers(users);
 }
