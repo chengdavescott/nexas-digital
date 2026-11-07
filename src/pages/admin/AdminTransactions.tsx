@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, Pencil, Trash2, CheckCircle2, ArrowUpDown } from "lucide-react";
 import type { Transaction } from "../../lib/store";
 import {
   money, getTransactions, updateTransaction, deleteTransaction, getUserByAccount, fullName,
-  getUsers, adminAdjust, fmtDate,
+  getUsers, adminAdjust, fmtDate, refreshStoreFromDatabase,
 } from "../../lib/store";
 import { SectionTitle, Field, inputCls, StatusBadge, EmptyState, Modal, PrimaryBtn, useToast } from "../../components/ui";
 import { AdminTxRow } from "../../components/TxList";
@@ -42,6 +42,24 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
   }, [q, type, status, asc, tick]);
 
   const reload = () => { setTick((t) => t + 1); refreshAll(); };
+
+  useEffect(() => {
+    let mounted = true;
+    const syncTransactions = async () => {
+      try {
+        await refreshStoreFromDatabase();
+        if (mounted) setTick((t) => t + 1);
+      } catch {
+        // Keep the latest local snapshot visible while the shared store is unavailable.
+      }
+    };
+    void syncTransactions();
+    const timer = window.setInterval(syncTransactions, 2000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const removeTransaction = (tx: Transaction) => {
     const confirmed = window.confirm(
