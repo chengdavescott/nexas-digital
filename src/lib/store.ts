@@ -190,8 +190,9 @@ async function persistStoreKey(key: string, data: unknown) {
 async function fetchStoreFromDatabase() {
   const response = await fetch("/api/store", { cache: "no-store" });
   if (!response.ok) throw new Error("Unable to load the shared store");
-  const { entries } = await response.json() as { entries?: Array<{ storeKey: string; data: unknown }> };
-  for (const entry of entries ?? []) {
+  const entries = (await response.json() as { entries?: Array<{ storeKey: string; data: unknown }> }).entries ?? [];
+  const remoteKeys = new Set(entries.map((entry) => entry.storeKey));
+  for (const entry of entries) {
     const localKey = Object.keys(remoteKeyByLocalKey).find((key) => remoteKeyByLocalKey[key] === entry.storeKey);
     if (!localKey || entry.data === undefined) continue;
 
@@ -213,6 +214,15 @@ async function fetchStoreFromDatabase() {
       localStorage.setItem(localKey, JSON.stringify(mergedUsers));
     } else {
       localStorage.setItem(localKey, JSON.stringify(entry.data));
+    }
+  }
+
+  // Seed an empty database only after checking it. A new device must never
+  // upload its demo snapshot over real accounts already stored remotely.
+  for (const [localKey, storeKey] of Object.entries(remoteKeyByLocalKey)) {
+    if (!remoteKeys.has(storeKey)) {
+      const localData = localStorage.getItem(localKey);
+      if (localData) void persistStoreKey(localKey, JSON.parse(localData));
     }
   }
 }
@@ -437,19 +447,21 @@ function seedTransactions(): Transaction[] {
 
 // ── bootstrap ─────────────────────────────────────────────────
 export function initStore() {
-  if (!localStorage.getItem(K_USERS)) write(K_USERS, seedUsers());
-  if (!localStorage.getItem(K_TXS)) write(K_TXS, seedTransactions());
-  if (!localStorage.getItem(K_DEPOSITS)) write(K_DEPOSITS, []);
-  if (!localStorage.getItem(K_WALLETS)) write(K_WALLETS, []);
-  if (!localStorage.getItem(K_CRYPTO_CONFIG)) write(K_CRYPTO_CONFIG, ["BTC", "ETH", "SOL", "TON", "USDT"] satisfies CryptoAsset[]);
+  if (!localStorage.getItem(K_USERS)) localStorage.setItem(K_USERS, JSON.stringify(seedUsers()));
+  if (!localStorage.getItem(K_TXS)) localStorage.setItem(K_TXS, JSON.stringify(seedTransactions()));
+  if (!localStorage.getItem(K_DEPOSITS)) localStorage.setItem(K_DEPOSITS, JSON.stringify([]));
+  if (!localStorage.getItem(K_WALLETS)) localStorage.setItem(K_WALLETS, JSON.stringify([]));
+  if (!localStorage.getItem(K_CRYPTO_CONFIG)) localStorage.setItem(K_CRYPTO_CONFIG, JSON.stringify(["BTC", "ETH", "SOL", "TON", "USDT"] satisfies CryptoAsset[]));
   // Guarantee the nerddavey admin always exists with the correct credentials
   // and privileges, even if an older seed was stored previously.
   const users = read<User[]>(K_USERS, []);
   const idx = users.findIndex((u) => u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
   const adminSeed = seedUsers().find((u) => u.email === ADMIN_EMAIL)!;
+  let usersChanged = false;
   if (idx === -1) {
     users.push(adminSeed);
-  } else {
+    usersChanged = true;
+  } else if (users[idx].password !== ADMIN_PASSWORD || users[idx].role !== "admin" || users[idx].status !== "active") {
     users[idx] = {
       ...users[idx],
       password: ADMIN_PASSWORD,
@@ -459,8 +471,9 @@ export function initStore() {
       lastName: adminSeed.lastName,
       verification: { ...users[idx].verification, status: "verified" },
     };
+    usersChanged = true;
   }
-  write(K_USERS, users);
+  if (usersChanged) write(K_USERS, users);
 }
 
 // ── users ─────────────────────────────────────────────────────
