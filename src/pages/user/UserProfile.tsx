@@ -61,7 +61,6 @@ export default function UserProfile({ user, refresh }: { user: User; refresh: ()
         <div className="min-w-0 flex-1">
           <p className="text-lg font-extrabold text-white">{fullName(user)}</p>
           <p className="text-sm text-slate-400">{user.email} · <span className="font-mono">{user.accountNumber}</span></p>
-          <p className="mt-0.5 text-xs text-slate-500">Member since {fmtDate(user.createdAt)} · DOB {user.dateOfBirth}</p>
         </div>
       </div>
 
