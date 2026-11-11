@@ -23,9 +23,14 @@ const NAV = [
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    const session = getSession();
+    if (!session) return null;
+    const current = getUserById(session.id);
+    return current?.role === "admin" && current.status === "active" ? current : null;
+  });
   const [tab, setTab] = useState("overview");
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
 
   const refresh = () => {
     const s = getSession();
@@ -35,12 +40,23 @@ export default function AdminDashboard() {
       navigate("/admin/login", { replace: true });
       return;
     }
-    setUser(fresh);
+    setUser((current) => {
+      if (
+        current?.id === fresh.id &&
+        current.status === fresh.status &&
+        current.balance === fresh.balance &&
+        current.firstName === fresh.firstName &&
+        current.lastName === fresh.lastName
+      ) {
+        return current;
+      }
+      return fresh;
+    });
     setTick((t) => t + 1);
   };
 
   useEffect(() => {
-    refresh();
+    if (!user) navigate("/admin/login", { replace: true });
     const handleHydrated = () => refresh();
     window.addEventListener("nexas-store-hydrated", handleHydrated);
     return () => window.removeEventListener("nexas-store-hydrated", handleHydrated);
@@ -76,12 +92,12 @@ export default function AdminDashboard() {
 
   return (
     <PortalShell user={user} nav={nav} active={tab} onNav={setTab} accent="amber">
-      {tab === "overview" && <AdminOverview key={tick} go={setTab} />}
-      {tab === "users" && <AdminUsers key={tick} refreshAll={refresh} />}
-      {tab === "verifications" && <AdminVerifications key={tick} refreshAll={refresh} />}
-      {tab === "transactions" && <AdminTransactions key={tick} refreshAll={refresh} />}
-      {tab === "crypto" && <AdminCrypto key={tick} refreshAll={refresh} />}
-      {tab === "generate" && <AdminGenerate key={tick} refreshAll={refresh} />}
+      {tab === "overview" && <AdminOverview go={setTab} />}
+      {tab === "users" && <AdminUsers refreshAll={refresh} />}
+      {tab === "verifications" && <AdminVerifications refreshAll={refresh} />}
+      {tab === "transactions" && <AdminTransactions refreshAll={refresh} />}
+      {tab === "crypto" && <AdminCrypto refreshAll={refresh} />}
+      {tab === "generate" && <AdminGenerate refreshAll={refresh} />}
     </PortalShell>
   );
 }

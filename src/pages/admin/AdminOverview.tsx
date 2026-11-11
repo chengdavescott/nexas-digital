@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Users, Wallet, ShieldCheck, Clock, ArrowRight, Bitcoin, ReceiptText, UserCheck } from "lucide-react";
 import type { User } from "../../lib/store";
 import {
@@ -8,10 +7,10 @@ import { SectionTitle, StatusBadge } from "../../components/ui";
 import { AdminTxRow } from "../../components/TxList";
 
 export default function AdminOverview({ go }: { go: (tab: string) => void }) {
-  const users = useMemo(() => getUsers().filter((u) => u.role !== "admin"), []);
-  const txs = useMemo(() => getTransactions(), []);
-  const deposits = useMemo(() => getDeposits(), []);
-  const wreqs = useMemo(() => getWalletRequests(), []);
+  const users = getUsers().filter((u) => u.role !== "admin");
+  const txs = getTransactions();
+  const deposits = getDeposits();
+  const wreqs = getWalletRequests();
 
   const stats = [
     { icon: Users, label: "Total Users", value: String(users.length), sub: `${users.filter((u) => u.status === "active").length} active`, grad: "from-blue-700 to-cyan-600" },
