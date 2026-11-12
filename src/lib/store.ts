@@ -559,39 +559,70 @@ export function addTransaction(t: Omit<Transaction, "id" | "createdAt"> & { id?:
   return tx;
 }
 
+function transactionBalanceImpact(tx: Transaction, users: User[]) {
+  const impact = new Map<string, number>();
+  const add = (userId: string, amount: number) => {
+    impact.set(userId, (impact.get(userId) ?? 0) + amount);
+  };
+
+  const reservesFunds = tx.status === "successful" || (tx.status === "pending" && tx.type === "wire");
+  if (reservesFunds && tx.fromAccount !== "SYSTEM" && !tx.fromAccount.startsWith("CRYPTO")) {
+    const sender = users.find((user) => user.accountNumber === tx.fromAccount);
+    if (sender) add(sender.id, -tx.amount);
+  }
+  if (tx.status === "successful" && tx.toAccount !== "SYSTEM") {
+    const recipient = users.find((user) => user.accountNumber === tx.toAccount);
+    if (recipient) add(recipient.id, tx.amount);
+  }
+
+  return impact;
+}
+
+function reconcileTransactionBalances(previous: Transaction, next: Transaction) {
+  const users = getUsers();
+  const previousImpact = transactionBalanceImpact(previous, users);
+  const nextImpact = transactionBalanceImpact(next, users);
+  const updatedUsers = users.map((user) => {
+    const delta = (nextImpact.get(user.id) ?? 0) - (previousImpact.get(user.id) ?? 0);
+    if (delta === 0) return user;
+
+    const balance = +(user.balance + delta).toFixed(2);
+    if (balance < 0) throw new Error(`Insufficient funds to apply this edit to ${fullName(user)}`);
+    return { ...user, balance };
+  });
+
+  if (updatedUsers.some((user, index) => user !== users[index])) {
+    saveUsers(updatedUsers);
+    const session = getSession();
+    const updatedSession = session && updatedUsers.find((user) => user.id === session.id);
+    if (updatedSession) setSession(updatedSession);
+  }
+}
+
 export function updateTransaction(id: string, patch: Partial<Transaction>): Transaction {
   const txs = getTransactions();
   const i = txs.findIndex((t) => t.id === id);
   if (i === -1) throw new Error("Transaction not found");
-  txs[i] = { ...txs[i], ...patch };
+
+  const previous = txs[i];
+  const next = { ...previous, ...patch };
+  if (!Number.isFinite(next.amount) || next.amount <= 0) throw new Error("Transaction amount must be greater than zero");
+  if (!next.fromAccount.trim() || !next.toAccount.trim()) throw new Error("Both transaction accounts are required");
+  if (Number.isNaN(new Date(next.createdAt).getTime())) throw new Error("Enter a valid transaction date");
+
+  reconcileTransactionBalances(previous, next);
+  txs[i] = next;
   saveTransactions(txs);
-  return txs[i];
+  return next;
 }
 
-/** Remove a transaction and reverse its successful balance impact first. */
+/** Remove a transaction and reverse its balance impact first. */
 export function deleteTransaction(id: string): Transaction {
   const txs = getTransactions();
   const tx = txs.find((t) => t.id === id);
   if (!tx) throw new Error("Transaction not found");
 
-  if (tx.status === "successful" && tx.amount > 0) {
-    const from = getUserByAccount(tx.fromAccount);
-    const to = getUserByAccount(tx.toAccount);
-    if (from && tx.fromAccount !== "SYSTEM" && !tx.fromAccount.startsWith("CRYPTO")) {
-      updateUser(from.id, { balance: +(from.balance + tx.amount).toFixed(2) });
-    }
-    if (to && tx.toAccount !== "SYSTEM") {
-      const freshTo = getUserById(to.id);
-      if (freshTo) {
-        if (tx.fromAccount === "SYSTEM") {
-          updateUser(freshTo.id, { balance: +(freshTo.balance - tx.amount).toFixed(2) });
-        } else {
-          updateUser(freshTo.id, { balance: +(freshTo.balance - tx.amount).toFixed(2) });
-        }
-      }
-    }
-  }
-
+  reconcileTransactionBalances(tx, { ...tx, status: "failed" });
   saveTransactions(txs.filter((entry) => entry.id !== id));
   return tx;
 }
