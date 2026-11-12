@@ -3,7 +3,7 @@ import { Search, Pencil, Trash2, CheckCircle2, ArrowUpDown } from "lucide-react"
 import type { Transaction } from "../../lib/store";
 import {
   money, getTransactions, updateTransaction, deleteTransaction, getUserByAccount, fullName,
-  getUsers, adminAdjust, fmtDate, refreshStoreFromDatabase,
+  fmtDate, refreshStoreFromDatabase,
 } from "../../lib/store";
 import { SectionTitle, Field, inputCls, StatusBadge, EmptyState, Modal, PrimaryBtn, useToast } from "../../components/ui";
 import { AdminTxRow } from "../../components/TxList";
@@ -17,11 +17,11 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
   const [type, setType] = useState<TFilter>("all");
   const [status, setStatus] = useState<SFilter>("all");
   const [asc, setAsc] = useState(false);
-  const [tick, setTick] = useState(0);
+  const [transactions, setTransactions] = useState<Transaction[]>(getTransactions);
   const [edit, setEdit] = useState<Transaction | null>(null);
 
   const list = useMemo(() => {
-    let out = [...getTransactions()];
+    let out = [...transactions];
     if (type !== "all") out = out.filter((t) => t.type === type);
     if (status !== "all") out = out.filter((t) => t.status === status);
     if (q.trim()) {
@@ -39,16 +39,16 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
     }
     out.sort((a, b) => (asc ? 1 : -1) * (+new Date(a.createdAt) - +new Date(b.createdAt)));
     return out;
-  }, [q, type, status, asc, tick]);
+  }, [q, type, status, asc, transactions]);
 
-  const reload = () => { setTick((t) => t + 1); refreshAll(); };
+  const reload = () => { setTransactions(getTransactions()); refreshAll(); };
 
   useEffect(() => {
     let mounted = true;
     const syncTransactions = async () => {
       try {
         await refreshStoreFromDatabase();
-        if (mounted) setTick((t) => t + 1);
+        if (mounted) setTransactions(getTransactions());
       } catch {
         // Keep the latest local snapshot visible while the shared store is unavailable.
       }
@@ -77,16 +77,14 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
 
   const settleWire = (tx: Transaction, ok: boolean) => {
     try {
-      updateTransaction(tx.id, { status: ok ? "successful" : "failed", processedAt: new Date().toISOString() });
-      if (!ok && tx.type === "wire") {
-        // refund reserved funds
-        const u = getUserByAccount(tx.fromAccount);
-        if (u) adminAdjust(u.id, "credit", tx.amount, `Wire ${tx.id} refunded`);
-      }
+      updateTransaction(tx.id, {
+        status: ok ? "successful" : "failed",
+        processedAt: new Date().toISOString(),
+      });
       reload();
       toast(ok ? "Transaction updated — wire marked successful" : "Transaction updated — wire failed & refunded");
-    } catch {
-      toast("Update failed", "error");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Update failed", "error");
     }
   };
 
@@ -176,82 +174,123 @@ export default function AdminTransactions({ refreshAll }: { refreshAll: () => vo
   );
 }
 
+function toLocalDateTimeValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 function EditTxModal({ tx, onClose, onDone, onError }: { tx: Transaction; onClose: () => void; onDone: (m: string) => void; onError: (m: string) => void }) {
   const [desc, setDesc] = useState(tx.description);
   const [amount, setAmount] = useState(String(tx.amount));
   const [status, setStatus] = useState(tx.status);
+  const [createdAt, setCreatedAt] = useState(toLocalDateTimeValue(tx.createdAt));
+  const [fromAccount, setFromAccount] = useState(tx.fromAccount);
+  const [toAccount, setToAccount] = useState(tx.toAccount);
+  const [beneficiaryName, setBeneficiaryName] = useState(tx.beneficiaryName ?? "");
+  const [bankName, setBankName] = useState(tx.bankName ?? "");
+  const [swiftBic, setSwiftBic] = useState(tx.swiftBic ?? "");
+  const [routingNumber, setRoutingNumber] = useState(tx.routingNumber ?? "");
+  const [beneficiaryAddress, setBeneficiaryAddress] = useState(tx.beneficiaryAddress ?? "");
+  const [note, setNote] = useState(tx.note ?? "");
   const [busy, setBusy] = useState(false);
-  const amt = parseFloat(amount);
+  const amt = Number.parseFloat(amount);
 
   const submit = () => {
-    if (!(amt > 0)) return onError("Invalid amount");
+    if (busy) return;
+    if (!Number.isFinite(amt) || amt <= 0) return onError("Enter an amount greater than zero");
+    if (!fromAccount.trim() || !toAccount.trim()) return onError("Both transaction accounts are required");
+    const parsedDate = new Date(createdAt);
+    if (!createdAt || Number.isNaN(parsedDate.getTime())) return onError("Enter a valid transaction date and time");
+
     setBusy(true);
-    setTimeout(() => {
-      try {
-        const old = getTransactions().find((t) => t.id === tx.id)!;
-        const delta = +amt.toFixed(2) - old.amount;
-        const wasSuccess = old.status === "successful";
-        const willSuccess = status === "successful";
-        // auto balance adjustments
-        if (delta !== 0 && wasSuccess && willSuccess) {
-          const from = getUserByAccount(old.fromAccount);
-          const to = getUserByAccount(old.toAccount);
-          if (from && old.fromAccount !== "SYSTEM" && !old.fromAccount.startsWith("CRYPTO")) {
-            const nb = +(from.balance - delta).toFixed(2);
-            if (nb < 0) throw new Error("Insufficient funds");
-            adminAdjust(from.id, delta > 0 ? "debit" : "credit", Math.abs(delta), `Edit ${tx.id}`);
-          } else if (to && old.toAccount !== "SYSTEM") {
-            adminAdjust(to.id, delta > 0 ? "credit" : "debit", Math.abs(delta), `Edit ${tx.id}`);
-          }
-        } else if (!wasSuccess && willSuccess) {
-          const from = getUserByAccount(old.fromAccount);
-          const to = getUserByAccount(old.toAccount);
-          if (to && old.toAccount !== "SYSTEM") adminAdjust(to.id, "credit", +amt.toFixed(2), `Settled ${tx.id}`);
-          else if (from && old.fromAccount !== "SYSTEM") adminAdjust(from.id, "debit", +amt.toFixed(2), `Settled ${tx.id}`);
-        } else if (wasSuccess && !willSuccess) {
-          const from = getUserByAccount(old.fromAccount);
-          const to = getUserByAccount(old.toAccount);
-          if (to && old.toAccount !== "SYSTEM") adminAdjust(to.id, "debit", Math.min(to.balance, old.amount), `Reversed ${tx.id}`);
-          else if (from && old.fromAccount !== "SYSTEM") adminAdjust(from.id, "credit", old.amount, `Reversed ${tx.id}`);
-        }
-        updateTransaction(tx.id, {
-          description: desc.trim() || old.description,
-          amount: +amt.toFixed(2),
-          status,
-          processedAt: willSuccess ? new Date().toISOString() : old.processedAt,
-        });
-        void getUsers;
-        onDone("Transaction updated");
-      } catch (err) {
-        onError(err instanceof Error ? err.message : "Update failed");
-      } finally {
-        setBusy(false);
-      }
-    }, 500);
+    try {
+      const old = getTransactions().find((transaction) => transaction.id === tx.id);
+      if (!old) throw new Error("Transaction not found");
+      const processedAt = status === "successful"
+        ? old.status === "successful" ? old.processedAt ?? new Date().toISOString() : new Date().toISOString()
+        : old.processedAt;
+      updateTransaction(tx.id, {
+        description: desc.trim() || old.description,
+        amount: +amt.toFixed(2),
+        status,
+        createdAt: parsedDate.toISOString(),
+        fromAccount: fromAccount.trim(),
+        toAccount: toAccount.trim(),
+        beneficiaryName: beneficiaryName.trim() || undefined,
+        bankName: bankName.trim() || undefined,
+        swiftBic: swiftBic.trim() || undefined,
+        routingNumber: routingNumber.trim() || undefined,
+        beneficiaryAddress: beneficiaryAddress.trim() || undefined,
+        note: note.trim() || undefined,
+        processedAt,
+      });
+      onDone("Transaction updated and account balances reconciled");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Update failed");
+      setBusy(false);
+    }
   };
 
   return (
-    <Modal title="Edit Transaction" subtitle={`Modify transaction details. Balance adjustments will be made automatically. · ${tx.id}`} onClose={onClose}>
-      <div className="space-y-4">
+    <Modal
+      title="Edit Transaction"
+      subtitle={`Edit transaction date, accounts, and wire details. Internal balances are reconciled automatically. · ${tx.id}`}
+      onClose={onClose}
+      wide
+    >
+      <div className="flex flex-col gap-4">
         <div className="rounded-xl border border-white/8 bg-black/25 p-3.5 text-[13px] text-slate-400">
-          <p><span className="font-semibold text-slate-500">Type:</span> <span className="font-bold text-white">{tx.type}</span> · <span className="font-semibold text-slate-500">From:</span> <span className="font-mono text-slate-200">{tx.fromAccount}</span> · <span className="font-semibold text-slate-500">To:</span> <span className="font-mono text-slate-200">{tx.toAccount}</span></p>
-          <p className="mt-1"><span className="font-semibold text-slate-500">Original:</span> ${money(tx.amount)} · {tx.status}</p>
+          <p><span className="font-semibold text-slate-500">Type:</span> <span className="font-bold text-white">{tx.type}</span> · <span className="font-semibold text-slate-500">Original accounts:</span> <span className="font-mono text-slate-200">{tx.fromAccount} → {tx.toAccount}</span></p>
+          <p className="mt-1"><span className="font-semibold text-slate-500">Original:</span> ${money(tx.amount)} · {tx.status} · {fmtDate(tx.createdAt)}</p>
         </div>
-        <Field label="Description">
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} className={inputCls} />
-        </Field>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Amount *">
-            <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={`${inputCls} font-mono`} />
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Transaction date and time *">
+            <input type="datetime-local" value={createdAt} onChange={(event) => setCreatedAt(event.target.value)} className={inputCls} />
           </Field>
-          <Field label="Transaction Status">
-            <select value={status} onChange={(e) => setStatus(e.target.value as Transaction["status"])} className={inputCls}>
+          <Field label="Transaction description">
+            <input value={desc} onChange={(event) => setDesc(event.target.value)} className={inputCls} />
+          </Field>
+          <Field label="From account *">
+            <input value={fromAccount} onChange={(event) => setFromAccount(event.target.value)} className={`${inputCls} font-mono`} />
+          </Field>
+          <Field label="To account *">
+            <input value={toAccount} onChange={(event) => setToAccount(event.target.value)} className={`${inputCls} font-mono`} />
+          </Field>
+          <Field label="Beneficiary name">
+            <input value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Beneficiary bank">
+            <input value={bankName} onChange={(event) => setBankName(event.target.value)} className={inputCls} />
+          </Field>
+          <Field label="SWIFT / BIC">
+            <input value={swiftBic} onChange={(event) => setSwiftBic(event.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Routing number">
+            <input value={routingNumber} onChange={(event) => setRoutingNumber(event.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Beneficiary address">
+            <input value={beneficiaryAddress} onChange={(event) => setBeneficiaryAddress(event.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Wire note">
+            <input value={note} onChange={(event) => setNote(event.target.value)} className={inputCls} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Amount *">
+            <input type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} className={`${inputCls} font-mono`} />
+          </Field>
+          <Field label="Transaction status">
+            <select value={status} onChange={(event) => setStatus(event.target.value as Transaction["status"])} className={inputCls}>
               <option value="successful">Successful</option>
               <option value="pending">Pending</option>
               <option value="failed">Failed</option>
             </select>
           </Field>
         </div>
+
         <div className="flex items-center gap-2 text-xs text-slate-500"><StatusBadge status={status} /> — new status preview</div>
         <PrimaryBtn onClick={submit} disabled={busy} className="w-full">
           <Pencil className="h-4 w-4" /> {busy ? "Processing..." : "Update Transaction"}

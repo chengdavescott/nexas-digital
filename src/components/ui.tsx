@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useId, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { CheckCircle2, XCircle, AlertTriangle, Info, X } from "lucide-react";
 
 // ── toast ─────────────────────────────────────────────────────
@@ -121,15 +122,20 @@ export function GhostBtn(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
 
 // ── modal ─────────────────────────────────────────────────────
 export function Modal({ title, subtitle, onClose, children, wide }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  return (
+  const titleId = useId();
+
+  return createPortal(
     <div className="anim-fade-in fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
       <div
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
         className={`anim-fade-up max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-sky-400/15 bg-[#0b1220] shadow-2xl sm:rounded-2xl ${wide ? "max-w-3xl" : "max-w-lg"}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
       >
         <div className="sticky top-0 flex items-start justify-between gap-4 border-b border-slate-700/50 bg-[#0b1220]/95 px-6 py-4 backdrop-blur">
           <div>
-            <h3 className="text-lg font-extrabold tracking-tight text-white">{title}</h3>
+            <h3 id={titleId} className="text-lg font-extrabold tracking-tight text-white">{title}</h3>
             {subtitle && <p className="mt-0.5 text-[13px] text-slate-400">{subtitle}</p>}
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-800 hover:text-white" aria-label="Close">
@@ -138,7 +144,8 @@ export function Modal({ title, subtitle, onClose, children, wide }: { title: str
         </div>
         <div className="px-6 py-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
