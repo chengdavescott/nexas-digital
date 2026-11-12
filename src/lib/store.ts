@@ -508,8 +508,59 @@ export function addUser(u: User) {
   saveUsers(users);
 }
 
+export function getUserDeleteBlockReason(id: string): string | null {
+  const users = getUsers();
+  const target = users.find((user) => user.id === id);
+  if (!target) return "This account no longer exists.";
+
+  const session = getSession();
+  const actor = session && users.find((user) => user.id === session.id);
+  if (!actor || actor.role !== "admin" || actor.status !== "active") {
+    return "An active administrator must be signed in to delete accounts.";
+  }
+  if (actor.id === target.id) return "You cannot delete the administrator account currently in use.";
+  if (target.email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    return "The primary system administrator account is protected.";
+  }
+  if (Math.abs(target.balance) >= 0.005) {
+    return `The balance must be $0.00 before deletion. Current balance: $${money(target.balance)}.`;
+  }
+
+  const activeAdmins = users.filter((user) => user.role === "admin" && user.status === "active").length;
+  if (target.role === "admin" && target.status === "active" && activeAdmins <= 1) {
+    return "At least one active administrator must remain.";
+  }
+  if (getDeposits().some((deposit) => deposit.userId === id && deposit.status === "pending")) {
+    return "Resolve pending deposit requests before deleting this account.";
+  }
+  if (getWalletRequests().some((request) => request.userId === id && request.status === "pending")) {
+    return "Resolve pending wallet requests before deleting this account.";
+  }
+
+  return null;
+}
+
+/** Delete a zero-balance profile while retaining its transaction and deposit history. */
+export function deleteUser(id: string) {
+  const blockReason = getUserDeleteBlockReason(id);
+  if (blockReason) throw new Error(blockReason);
+  saveUsers(getUsers().filter((user) => user.id !== id));
+}
+
 // ── session ───────────────────────────────────────────────────
-export const getSession = () => read<User | null>(K_SESSION, null);
+export const getSession = () => {
+  const session = read<User | null>(K_SESSION, null);
+  if (!session) return null;
+
+  const user = getUsers().find((candidate) => candidate.id === session.id);
+  if (!user || user.status !== "active") {
+    localStorage.removeItem(K_SESSION);
+    return null;
+  }
+
+  return user;
+};
+
 export const setSession = (u: User | null) =>
   u ? localStorage.setItem(K_SESSION, JSON.stringify(u)) : localStorage.removeItem(K_SESSION);
 

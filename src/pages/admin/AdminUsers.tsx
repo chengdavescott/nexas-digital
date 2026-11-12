@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, UserCheck, UserX, Eye, PlusCircle, MinusCircle, CreditCard, X } from "lucide-react";
+import { Search, UserCheck, UserX, Eye, PlusCircle, MinusCircle, CreditCard, Trash2, X } from "lucide-react";
 import type { User } from "../../lib/store";
 import {
-  money, getUsers, updateUser, adminAdjust, issueVirtualCard, fullName, fmtDate,
+  money, getUsers, updateUser, deleteUser, getUserDeleteBlockReason, adminAdjust, issueVirtualCard, fullName, fmtDate,
   userTransactions, userDeposits, assignedWallets, refreshStoreFromDatabase,
 } from "../../lib/store";
 import { SectionTitle, Field, inputCls, StatusBadge, EmptyState, Modal, PrimaryBtn, useToast } from "../../components/ui";
@@ -12,12 +12,14 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
   const { toast } = useToast();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
-  const [tick, setTick] = useState(0);
+  const [roleFilter, setRoleFilter] = useState<"user" | "admin" | "all">("user");
+  const [userRecords, setUserRecords] = useState<User[]>(() => getUsers());
   const [viewUser, setViewUser] = useState<User | null>(null);
   const [adjust, setAdjust] = useState<{ user: User; kind: "credit" | "debit" } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
 
   const users = useMemo(() => {
-    let list = getUsers().filter((u) => u.role !== "admin");
+    let list = userRecords.filter((u) => roleFilter === "all" || u.role === roleFilter);
     if (filter !== "all") list = list.filter((u) => u.verification.status === filter || u.status === filter);
     if (q.trim()) {
       const s = q.trim().toLowerCase();
@@ -27,16 +29,19 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
       );
     }
     return list;
-  }, [q, filter, tick]);
+  }, [q, filter, roleFilter, userRecords]);
 
-  const reload = () => { setTick((t) => t + 1); refreshAll(); };
+  const reload = () => { setUserRecords(getUsers()); refreshAll(); };
+  const accountLabel = roleFilter === "admin"
+    ? "administrator account"
+    : roleFilter === "all" ? "account" : "client account";
 
   useEffect(() => {
     let mounted = true;
     const syncUsers = async () => {
       try {
-        await refreshStoreFromDatabase();
-        if (mounted) reload();
+      await refreshStoreFromDatabase();
+      if (mounted) setUserRecords(getUsers());
       } catch {
         // Keep the latest local snapshot visible while the shared store is unavailable.
       }
@@ -63,15 +68,23 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
 
   return (
     <div className="anim-fade-up">
-      <SectionTitle title="Users" subtitle={`${users.length} client account${users.length === 1 ? "" : "s"}`} />
+      <SectionTitle
+        title={roleFilter === "admin" ? "Administrators" : roleFilter === "all" ? "Accounts" : "Users"}
+        subtitle={`${users.length} ${accountLabel}${users.length === 1 ? "" : "s"}`}
+      />
 
       <div className="glass mb-5 flex flex-col gap-3 rounded-2xl p-4 lg:flex-row lg:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users..." className="input-dark w-full rounded-xl py-2.5 pl-10 pr-4 text-sm" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users or admins..." className="input-dark w-full rounded-xl py-2.5 pl-10 pr-4 text-sm" />
         </div>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} className="input-dark rounded-xl px-3 py-2.5 text-[13px] font-semibold">
-          <option value="all">All Users</option>
+        <select aria-label="Filter accounts by role" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as "user" | "admin" | "all")} className="input-dark rounded-xl px-3 py-2.5 text-[13px] font-semibold">
+          <option value="user">Client Accounts</option>
+          <option value="admin">Administrators</option>
+          <option value="all">All Accounts</option>
+        </select>
+        <select aria-label="Filter accounts by status" value={filter} onChange={(e) => setFilter(e.target.value)} className="input-dark rounded-xl px-3 py-2.5 text-[13px] font-semibold">
+          <option value="all">All Statuses</option>
           <option value="verified">Verified</option>
           <option value="pending">Pending Review</option>
           <option value="unverified">Unverified</option>
@@ -82,7 +95,7 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
       </div>
 
       {users.length === 0 ? (
-        <EmptyState icon={<Search className="h-6 w-6" />} title="No users found" subtitle="Try a different search or filter." />
+        <EmptyState icon={<Search className="h-6 w-6" />} title="No accounts found" subtitle="Try a different search or filter." />
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {users.map((u) => (
@@ -97,6 +110,7 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
                   <p className="mt-0.5 font-mono text-xs text-slate-500">Account: {u.accountNumber}</p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  {u.role === "admin" && <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-amber-200">Admin</span>}
                   <StatusBadge status={u.verification.status} />
                   <StatusBadge status={u.status} />
                 </div>
@@ -115,20 +129,27 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
                 <button onClick={() => setViewUser(u)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600/60 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:border-sky-400/40 hover:text-white">
                   <Eye className="h-3.5 w-3.5" /> View Account
                 </button>
-                <button onClick={() => setAdjust({ user: u, kind: "credit" })} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/20">
-                  <PlusCircle className="h-3.5 w-3.5" /> Credit
-                </button>
-                <button onClick={() => setAdjust({ user: u, kind: "debit" })} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20">
-                  <MinusCircle className="h-3.5 w-3.5" /> Debit
-                </button>
-                {!u.virtualCard && (
-                  <button onClick={() => issueCard(u)} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300 transition hover:bg-amber-500/20">
-                    <CreditCard className="h-3.5 w-3.5" /> Issue Card
-                  </button>
+                {u.role !== "admin" && (
+                  <>
+                    <button onClick={() => setAdjust({ user: u, kind: "credit" })} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/20">
+                      <PlusCircle className="h-3.5 w-3.5" /> Credit
+                    </button>
+                    <button onClick={() => setAdjust({ user: u, kind: "debit" })} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-300 transition hover:bg-rose-500/20">
+                      <MinusCircle className="h-3.5 w-3.5" /> Debit
+                    </button>
+                    {!u.virtualCard && (
+                      <button onClick={() => issueCard(u)} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-300 transition hover:bg-amber-500/20">
+                        <CreditCard className="h-3.5 w-3.5" /> Issue Card
+                      </button>
+                    )}
+                    <button onClick={() => toggleStatus(u)} className={`ml-auto inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition ${u.status === "active" ? "border-slate-600/60 text-slate-400 hover:border-rose-400/40 hover:text-rose-300" : "border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/15"}`}>
+                      {u.status === "active" ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
+                      {u.status === "active" ? "Deactivate" : "Activate"}
+                    </button>
+                  </>
                 )}
-                <button onClick={() => toggleStatus(u)} className={`ml-auto inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition ${u.status === "active" ? "border-slate-600/60 text-slate-400 hover:border-rose-400/40 hover:text-rose-300" : "border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/15"}`}>
-                  {u.status === "active" ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
-                  {u.status === "active" ? "Deactivate" : "Activate"}
+                <button onClick={() => setDeleteTarget(u)} aria-label={`Delete ${u.role === "admin" ? "administrator" : "account"} for ${fullName(u)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-200 transition hover:bg-rose-500/20">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
                 </button>
               </div>
             </div>
@@ -137,6 +158,13 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
       )}
 
       {viewUser && <UserDetailModal user={viewUser} onClose={() => setViewUser(null)} />}
+      {deleteTarget && (
+        <DeleteUserModal
+          user={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDone={() => { setDeleteTarget(null); reload(); }}
+        />
+      )}
       {adjust && (
         <AdjustModal
           user={adjust.user} kind={adjust.kind}
@@ -145,6 +173,57 @@ export default function AdminUsers({ refreshAll }: { refreshAll: () => void }) {
         />
       )}
     </div>
+  );
+}
+
+function DeleteUserModal({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast();
+  const blockReason = getUserDeleteBlockReason(user.id);
+  const accountType = user.role === "admin" ? "administrator" : "client account";
+
+  const confirmDelete = () => {
+    if (blockReason) return;
+    try {
+      deleteUser(user.id);
+      toast(`${fullName(user)} was deleted`);
+      onDone();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Unable to delete this account", "error");
+    }
+  };
+
+  return (
+    <Modal
+      title={`Delete ${accountType}?`}
+      subtitle={`${fullName(user)} · ${user.email} · ${user.accountNumber}`}
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        <div className="rounded-xl border border-rose-400/25 bg-rose-500/8 px-4 py-3 text-sm text-rose-100" role="note">
+          <p className="font-bold">This action cannot be undone.</p>
+          <p className="mt-1 text-rose-100/80">
+            The {accountType} profile and sign-in will be removed. Transaction and reviewed deposit history will remain in the ledger.
+          </p>
+        </div>
+        {blockReason && (
+          <p className="rounded-xl border border-amber-300/25 bg-amber-400/8 px-4 py-3 text-sm text-amber-100" role="alert">
+            {blockReason}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-600/60 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800/60">
+            <X className="h-4 w-4" /> Cancel
+          </button>
+          <button
+            onClick={confirmDelete}
+            disabled={!!blockReason}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 py-2.5 text-sm font-extrabold text-rose-100 transition hover:bg-rose-500/25 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Trash2 className="h-4 w-4" /> Delete {user.role === "admin" ? "Administrator" : "Account"}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -175,7 +254,7 @@ function UserDetailModal({ user, onClose }: { user: User; onClose: () => void })
           </div>
         ))}
       </div>
-      <h4 className="mb-3 mt-6 font-extrabold text-white">User Transaction History ({txs.length})</h4>
+      <h4 className="mb-3 mt-6 font-extrabold text-white">Account Transaction History ({txs.length})</h4>
       {txs.length === 0 ? (
         <EmptyState icon={<Eye className="h-6 w-6" />} title="No transactions for this user" />
       ) : (
