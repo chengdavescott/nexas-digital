@@ -6,10 +6,12 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(async ({ mode }) => {
   const plugins = [react(), tailwindcss()];
   try {
-    // @ts-ignore
+    // @ts-expect-error -- optional generated plugin may not exist in every environment
     const m = await import('./.vite-source-tags.js');
     plugins.push(m.sourceTags());
-  } catch {}
+  } catch {
+    // The source-tags plugin is optional in development sandboxes.
+  }
 
   const env = loadEnv(mode, process.cwd(), ['VITE_', 'NEXT_PUBLIC_']);
   const processEnvDefines: Record<string, string> = {};
@@ -20,6 +22,9 @@ export default defineConfig(async ({ mode }) => {
   return {
     plugins,
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
+    server: {
+      allowedHosts: ['sb-2uau5qeervgr.vercel.run'],
+    },
     define: processEnvDefines,
   };
 })
